@@ -22,6 +22,8 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 	"golang.org/x/crypto/sha3"
+
+	"fmt"
 )
 
 func opAdd(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
@@ -510,6 +512,7 @@ func opSload(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]b
 	hash := common.Hash(loc.Bytes32())
 	val := interpreter.evm.StateDB.GetState(callContext.contract.Address(), hash)
 	loc.SetBytes(val.Bytes())
+	fmt.Print("\"SLOAD ", callContext.contract.Address().Hex(), " ", hash.Hex(), "\",")
 	return nil, nil
 }
 
@@ -518,6 +521,7 @@ func opSstore(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]
 	val := callContext.stack.pop()
 	interpreter.evm.StateDB.SetState(callContext.contract.Address(),
 		common.Hash(loc.Bytes32()), common.Hash(val.Bytes32()))
+	fmt.Print("\"SSTORE ", callContext.contract.Address().Hex(), " ", common.Hash(loc.Bytes32()).Hex(), "\",")
 	return nil, nil
 }
 
@@ -595,6 +599,7 @@ func opGas(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byt
 }
 
 func opCreate(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	//fmt.Print("\"CREATE\",")
 	var (
 		value        = callContext.stack.pop()
 		offset, size = callContext.stack.pop(), callContext.stack.pop()
@@ -614,7 +619,11 @@ func opCreate(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]
 		bigVal = value.ToBig()
 	}
 
+	fmt.Print("\"CREATE ", callContext.contract.Address().Hex(), " ", bigVal, "\",")
+	//fmt.Print("{\"blocknumber\":", interpreter.evm.BlockNumber, ", \"from\":\"", callContext.contract.Address().Hex(), "\", \"to\":\"null\", \"nonce\":", "null" , ", \"balance\":", bigVal, ", \"operations\":[")
 	res, addr, returnGas, suberr := interpreter.evm.Create(callContext.contract, input, gas, bigVal)
+	//fmt.Print("], \"return\":\"", addr.Hex(), "\"},\n")
+	fmt.Print("\"_CREATE ", addr.Hex(), "\",")
 	// Push item on the stack based on the returned error. If the ruleset is
 	// homestead we must check for CodeStoreOutOfGasError (homestead only
 	// rule) and treat as an error, if the ruleset is frontier we must
@@ -636,6 +645,7 @@ func opCreate(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]
 }
 
 func opCreate2(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	//fmt.Print("\"CREATE2\",")
 	var (
 		endowment    = callContext.stack.pop()
 		offset, size = callContext.stack.pop(), callContext.stack.pop()
@@ -654,8 +664,12 @@ func opCreate2(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([
 	if !endowment.IsZero() {
 		bigEndowment = endowment.ToBig()
 	}
+	//fmt.Print("{\"blocknumber\":", interpreter.evm.BlockNumber, ", \"from\":\"", callContext.contract.Address().Hex(), "\", \"to\":\"null\", \"nonce\":", "null" , ", \"balance\":", bigEndowment, ", \"operations\":[")
+	fmt.Print("\"CREATE2 ", callContext.contract.Address().Hex(), " ", bigEndowment, "\",")
 	res, addr, returnGas, suberr := interpreter.evm.Create2(callContext.contract, input, gas,
 		bigEndowment, &salt)
+	fmt.Print("\"_CREATE2 ", addr.Hex(), "\",")
+	//fmt.Print("], \"return\":\"", addr.Hex(), "\"},\n")
 	// Push item on the stack based on the returned error.
 	if suberr != nil {
 		stackvalue.Clear()
@@ -672,6 +686,7 @@ func opCreate2(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([
 }
 
 func opCall(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	//fmt.Print("\"CALL\",")
 	stack := callContext.stack
 	// Pop gas. The actual gas in interpreter.evm.callGasTemp.
 	// We can use this as a temporary value
@@ -692,7 +707,11 @@ func opCall(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]by
 		bigVal = value.ToBig()
 	}
 
+	//fmt.Print("{\"blocknumber\":", interpreter.evm.BlockNumber, ", \"from\":\"", callContext.contract.Address().Hex(), "\", \"to\":\"", toAddr.Hex(),"\", \"nonce\":", "null", ", \"balance\":", bigVal, ", \"operations\":[")
+	fmt.Print("\"CALL ", callContext.contract.Address().Hex(), " ", toAddr.Hex(), " ", bigVal, "\",")
 	ret, returnGas, err := interpreter.evm.Call(callContext.contract, toAddr, args, gas, bigVal)
+	fmt.Print("\"_CALL\",")
+	//fmt.Print("], \"return\":\"null\"},\n")
 
 	if err != nil {
 		temp.Clear()
@@ -709,6 +728,7 @@ func opCall(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]by
 }
 
 func opCallCode(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	//fmt.Print("\"CALLCODE\",")
 	// Pop gas. The actual gas is in interpreter.evm.callGasTemp.
 	stack := callContext.stack
 	// We use it as a temporary value
@@ -727,7 +747,11 @@ func opCallCode(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) (
 		bigVal = value.ToBig()
 	}
 
+	//fmt.Print("{\"blocknumber\":", interpreter.evm.BlockNumber, ", \"from\":\"", callContext.contract.Address().Hex(), "\", \"to\":\"", toAddr.Hex(),"\", \"nonce\":", "null", ", \"balance\":", bigVal, ", \"operations\":[")
+	fmt.Print("\"CALLCODE ", callContext.contract.Address().Hex(), " ", toAddr.Hex(), " ", bigVal, "\",")
 	ret, returnGas, err := interpreter.evm.CallCode(callContext.contract, toAddr, args, gas, bigVal)
+	fmt.Print("\"_CALLCODE\",")
+	//fmt.Print("], \"return\":\"null\"},\n")
 	if err != nil {
 		temp.Clear()
 	} else {
@@ -743,6 +767,7 @@ func opCallCode(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) (
 }
 
 func opDelegateCall(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	//fmt.Print("\"DELEGATECALL\",")
 	stack := callContext.stack
 	// Pop gas. The actual gas is in interpreter.evm.callGasTemp.
 	// We use it as a temporary value
@@ -754,7 +779,11 @@ func opDelegateCall(pc *uint64, interpreter *EVMInterpreter, callContext *callCt
 	// Get arguments from the memory.
 	args := callContext.memory.GetPtr(int64(inOffset.Uint64()), int64(inSize.Uint64()))
 
+	//fmt.Print("{\"blocknumber\":", interpreter.evm.BlockNumber, ", \"from\":\"", callContext.contract.Address().Hex(), "\", \"to\":\"", toAddr.Hex(),"\", \"nonce\":", "null", ", \"balance\":", 0, ", \"operations\":[")
+	fmt.Print("\"DELEGATECALL ", callContext.contract.Address().Hex(), " ", toAddr.Hex(), "\",")
 	ret, returnGas, err := interpreter.evm.DelegateCall(callContext.contract, toAddr, args, gas)
+	fmt.Print("\"_DELEGATECALL\",")
+	//fmt.Print("], \"return\":\"null\"},\n")
 	if err != nil {
 		temp.Clear()
 	} else {
@@ -770,6 +799,7 @@ func opDelegateCall(pc *uint64, interpreter *EVMInterpreter, callContext *callCt
 }
 
 func opStaticCall(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	//fmt.Print("\"STATICCALL\",")
 	// Pop gas. The actual gas is in interpreter.evm.callGasTemp.
 	stack := callContext.stack
 	// We use it as a temporary value
@@ -781,7 +811,11 @@ func opStaticCall(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx)
 	// Get arguments from the memory.
 	args := callContext.memory.GetPtr(int64(inOffset.Uint64()), int64(inSize.Uint64()))
 
+	//fmt.Print("{\"blocknumber\":", interpreter.evm.BlockNumber, ", \"from\":\"", callContext.contract.Address().Hex(), "\", \"to\":\"", toAddr.Hex(),"\", \"nonce\":", "null", ", \"balance\":", 0, ", \"operations\":[")
+	fmt.Print("\"STATICCALL ", callContext.contract.Address().Hex(), " ", toAddr.Hex(), "\",")
 	ret, returnGas, err := interpreter.evm.StaticCall(callContext.contract, toAddr, args, gas)
+	fmt.Print("\"_STATICCALL\",")
+	//fmt.Print("], \"return\":\"null\"},\n")
 	if err != nil {
 		temp.Clear()
 	} else {
@@ -815,6 +849,7 @@ func opStop(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]by
 }
 
 func opSuicide(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	fmt.Print("\"SUICIDE\",")
 	beneficiary := callContext.stack.pop()
 	balance := interpreter.evm.StateDB.GetBalance(callContext.contract.Address())
 	interpreter.evm.StateDB.AddBalance(common.Address(beneficiary.Bytes20()), balance)

@@ -23,6 +23,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
+
+	"fmt"
 )
 
 /*
@@ -164,6 +166,10 @@ func ApplyMessage(evm *vm.EVM, msg Message, gp *GasPool) (*ExecutionResult, erro
 	return NewStateTransition(evm, msg, gp).TransitionDb()
 }
 
+func ApplyMessageWithLog(evm *vm.EVM, msg Message, gp *GasPool) (*ExecutionResult, error) {
+	return NewStateTransition(evm, msg, gp).TransitionDbWithLog()
+}
+
 // to returns the recipient of the message.
 func (st *StateTransition) to() common.Address {
 	if st.msg == nil || st.msg.To() == nil /* contract creation */ {
@@ -258,6 +264,67 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		// Increment the nonce for the next transaction
 		st.state.SetNonce(msg.From(), st.state.GetNonce(sender.Address())+1)
 		ret, st.gas, vmerr = st.evm.Call(sender, st.to(), st.data, st.gas, st.value)
+	}
+	st.refundGas()
+	st.state.AddBalance(st.evm.Coinbase, new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), st.gasPrice))
+
+	return &ExecutionResult{
+		UsedGas:    st.gasUsed(),
+		Err:        vmerr,
+		ReturnData: ret,
+	}, nil
+}
+
+func (st *StateTransition) TransitionDbWithLog() (*ExecutionResult, error) {
+	// First check this message satisfies all consensus rules before
+	// applying the message. The rules include these clauses
+	//
+	// 1. the nonce of the message caller is correct
+	// 2. caller has enough balance to cover transaction fee(gaslimit * gasprice)
+	// 3. the amount of gas required is available in the block
+	// 4. the purchased gas is enough to cover intrinsic usage
+	// 5. there is no overflow when calculating intrinsic gas
+	// 6. caller has enough balance to cover asset transfer for **topmost** call
+
+	// Check clauses 1-3, buy gas if everything is correct
+	if err := st.preCheck(); err != nil {
+		return nil, err
+	}
+	msg := st.msg
+	sender := vm.AccountRef(msg.From())
+	homestead := st.evm.ChainConfig().IsHomestead(st.evm.BlockNumber)
+	istanbul := st.evm.ChainConfig().IsIstanbul(st.evm.BlockNumber)
+	contractCreation := msg.To() == nil
+
+	// Check clauses 4-5, subtract intrinsic gas if everything is correct
+	gas, err := IntrinsicGas(st.data, contractCreation, homestead, istanbul)
+	if err != nil {
+		return nil, err
+	}
+	if st.gas < gas {
+		return nil, ErrIntrinsicGas
+	}
+	st.gas -= gas
+
+	// Check clause 6
+	if msg.Value().Sign() > 0 && !st.evm.CanTransfer(st.state, msg.From(), msg.Value()) {
+		return nil, ErrInsufficientFundsForTransfer
+	}
+	var (
+		ret   []byte
+		addr  common.Address
+		vmerr error // vm errors do not effect consensus and are therefore not assigned to err
+	)
+	if contractCreation {
+		fmt.Print("{\"blocknumber\":", st.evm.BlockNumber, ", \"from\":\"", sender.Address().Hex(), "\", \"to\":\"null\", \"nonce\":", st.state.GetNonce(sender.Address()), ", \"balance\":\"", st.value, "\", \"operations\":[")
+		ret, addr, st.gas, vmerr = st.evm.Create(sender, st.data, st.gas, st.value)
+		fmt.Print("], \"return\":\"", addr.Hex(), "\"},\n")
+	} else {
+		fmt.Print("{\"blocknumber\":", st.evm.BlockNumber, ", \"from\":\"", sender.Address().Hex(), "\", \"to\":\"", st.to().Hex(),"\", \"nonce\":", st.state.GetNonce(sender.Address()), ", \"balance\":\"", st.value, "\", \"operations\":[")
+		// Increment the nonce for the next transaction
+		st.state.SetNonce(msg.From(), st.state.GetNonce(sender.Address())+1)
+		ret, st.gas, vmerr = st.evm.Call(sender, st.to(), st.data, st.gas, st.value)
+		fmt.Print("], \"return\":\"null\"},\n")
 	}
 	st.refundGas()
 	st.state.AddBalance(st.evm.Coinbase, new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), st.gasPrice))
