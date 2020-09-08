@@ -318,13 +318,13 @@ func (st *StateTransition) TransitionDbWithLog() (*ExecutionResult, error) {
 	if contractCreation {
 		fmt.Print("{\"blocknumber\":", st.evm.BlockNumber, ", \"from\":\"", sender.Address().Hex(), "\", \"to\":\"null\", \"nonce\":", st.state.GetNonce(sender.Address()), ", \"balance\":\"", st.value, "\", \"operations\":[")
 		ret, addr, st.gas, vmerr = st.evm.Create(sender, st.data, st.gas, st.value)
-		fmt.Print("], \"return\":\"", addr.Hex(), "\"},\n")
+		fmt.Print("], \"return\":\"", addr.Hex(), "\"}\n")
 	} else {
 		fmt.Print("{\"blocknumber\":", st.evm.BlockNumber, ", \"from\":\"", sender.Address().Hex(), "\", \"to\":\"", st.to().Hex(),"\", \"nonce\":", st.state.GetNonce(sender.Address()), ", \"balance\":\"", st.value, "\", \"operations\":[")
 		// Increment the nonce for the next transaction
 		st.state.SetNonce(msg.From(), st.state.GetNonce(sender.Address())+1)
 		ret, st.gas, vmerr = st.evm.Call(sender, st.to(), st.data, st.gas, st.value)
-		fmt.Print("], \"return\":\"null\"},\n")
+		fmt.Print("], \"return\":\"null\"}\n")
 	}
 	st.refundGas()
 	st.state.AddBalance(st.evm.Coinbase, new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), st.gasPrice))
