@@ -194,6 +194,7 @@ func (api *PrivateDebugAPI) traceChain(ctx context.Context, start, end *types.Bl
 		tasks   = make(chan *blockTraceTask, threads)
 		results = make(chan *blockTraceTask, threads)
 	)
+
 	for th := 0; th < threads; th++ {
 		pend.Add(1)
 		go func() {
@@ -368,7 +369,12 @@ func (api *PrivateDebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.B
 	if block == nil {
 		return nil, fmt.Errorf("block #%d not found", number)
 	}
-	return api.traceBlock(ctx, block, config)
+
+	api.traceBlock(ctx, block, config)
+	print ("TraceBlock done #", number)
+	results := make([]*txTraceResult, 0)
+	return results, nil
+	//return api.traceBlock(ctx, block, config)
 }
 
 // TraceBlockByHash returns the structured logs created during the execution of
@@ -465,32 +471,11 @@ func (api *PrivateDebugAPI) traceBlock(ctx context.Context, block *types.Block, 
 		txs     = block.Transactions()
 		results = make([]*txTraceResult, len(txs))
 
-		pend = new(sync.WaitGroup)
+		//pend = new(sync.WaitGroup)
 		jobs = make(chan *txTraceTask, len(txs))
 	)
-	threads := runtime.NumCPU()
-	if threads > len(txs) {
-		threads = len(txs)
-	}
-	for th := 0; th < threads; th++ {
-		pend.Add(1)
-		go func() {
-			defer pend.Done()
 
-			// Fetch and execute the next transaction trace tasks
-			for task := range jobs {
-				msg, _ := txs[task.index].AsMessage(signer)
-				vmctx := core.NewEVMContext(msg, block.Header(), api.eth.blockchain, nil)
-
-				res, err := api.traceTx(ctx, msg, vmctx, task.statedb, config)
-				if err != nil {
-					results[task.index] = &txTraceResult{Error: err.Error()}
-					continue
-				}
-				results[task.index] = &txTraceResult{Result: res}
-			}
-		}()
-	}
+	// 먼저 `jobs` 를 모두 순서대로 채운다 (원래는 task 수행과 동시에 진행되었으나 그렇게되면 ApplyMessage가 동시에 일어나기때문에 깔끔한 로그를 얻지 못하므로 Sequential 하게 수행)
 	// Feed the transactions into the tracers and return
 	var failed error
 	for i, tx := range txs {
@@ -511,7 +496,22 @@ func (api *PrivateDebugAPI) traceBlock(ctx context.Context, block *types.Block, 
 		statedb.Finalise(vmenv.ChainConfig().IsEIP158(block.Number()))
 	}
 	close(jobs)
-	pend.Wait()
+
+	// Logmode를 설정한 뒤 jobs에 있는 task (=transaction) 을 하나씩 수행한다
+	common.Logmode = true
+	for task := range jobs {
+		msg, _ := txs[task.index].AsMessage(signer)
+		vmctx := core.NewEVMContext(msg, block.Header(), api.eth.blockchain, nil)
+		res, err := api.traceTxWithLog(task.index, ctx, msg, vmctx, task.statedb, config)
+		if err != nil {
+			results[task.index] = &txTraceResult{Error: err.Error()}
+			continue
+		}
+		results[task.index] = &txTraceResult{Result: res}
+	}
+	common.Logmode = false
+
+	//pend.Wait()
 
 	// If execution failed in between, abort
 	if failed != nil {
@@ -717,6 +717,80 @@ func (api *PrivateDebugAPI) TraceTransaction(ctx context.Context, hash common.Ha
 	}
 	// Trace the transaction and return
 	return api.traceTx(ctx, msg, vmctx, statedb, config)
+}
+
+func (api *PrivateDebugAPI) traceTxWithLog(txid int, ctx context.Context, message core.Message, vmctx vm.Context, statedb *state.StateDB, config *TraceConfig) (interface{}, error) {
+	// Assemble the structured logger or the JavaScript tracer
+	var (
+		tracer vm.Tracer
+		err    error
+	)
+	switch {
+	case config != nil && config.Tracer != nil:
+		// Define a meaningful timeout of a single transaction trace
+		timeout := defaultTraceTimeout
+		if config.Timeout != nil {
+			if timeout, err = time.ParseDuration(*config.Timeout); err != nil {
+				return nil, err
+			}
+		}
+		// Constuct the JavaScript tracer to execute with
+		if tracer, err = tracers.New(*config.Tracer); err != nil {
+			return nil, err
+		}
+		// Handle timeouts and RPC cancellations
+		deadlineCtx, cancel := context.WithTimeout(ctx, timeout)
+		go func() {
+			<-deadlineCtx.Done()
+			tracer.(*tracers.Tracer).Stop(errors.New("execution timeout"))
+		}()
+		defer cancel()
+
+	case config == nil:
+		tracer = vm.NewStructLogger(nil)
+
+	default:
+		tracer = vm.NewStructLogger(config.LogConfig)
+	}
+	// Run the transaction with tracing enabled.
+	vmenv := vm.NewEVM(vmctx, statedb, api.eth.blockchain.Config(), vm.Config{Debug: true, Tracer: tracer})
+
+	// 여기에서 메세지가 찍힐 것
+	result, err := core.ApplyMessageWithLog(vmenv, message, new(core.GasPool).AddGas(message.Gas()))
+
+	// 또한 뒤의 마무리 메세지가 여기에서 찍힐 것
+	if len(message.Data()) == 0 {
+		fmt.Print(", \"type\":0") // regular Tx
+	} else {
+		fmt.Print(", \"type\":1") // CA Tx (Deploy, Invoke CA...)
+	}
+	fmt.Print(", \"gas\":", result.UsedGas, ", \"txid\":", txid+1 ,"}\n")
+
+	if err != nil {
+		return nil, fmt.Errorf("tracing failed: %v", err)
+	}
+	// Depending on the tracer type, format and return the output
+	switch tracer := tracer.(type) {
+	case *vm.StructLogger:
+		// If the result contains a revert reason, return it.
+		returnVal := fmt.Sprintf("%x", result.Return())
+		if len(result.Revert()) > 0 {
+			returnVal = fmt.Sprintf("%x", result.Revert())
+		}
+		return &ethapi.ExecutionResult{
+			Gas:         result.UsedGas,
+			Failed:      result.Failed(),
+			ReturnValue: returnVal,
+			StructLogs:  ethapi.FormatLogs(tracer.StructLogs()),
+		}, nil
+
+	case *tracers.Tracer:
+		print("return in tracers.Tracer")
+		return tracer.GetResult()
+
+	default:
+		panic(fmt.Sprintf("bad tracer type %T", tracer))
+	}
 }
 
 // traceTx configures a new tracer according to the provided configuration, and
