@@ -27,6 +27,7 @@ import (
 	"runtime"
 	"sync"
 	"time"
+	"encoding/binary"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -761,12 +762,16 @@ func (api *PrivateDebugAPI) traceTxWithLog(txid int, ctx context.Context, messag
 	result, err := core.ApplyMessageWithLog(vmenv, message, new(core.GasPool).AddGas(message.Gas()))
 
 	// 또한 뒤의 마무리 메세지가 여기에서 찍힐 것
-	if len(message.Data()) == 0 {
-		fmt.Print(", \"type\":0") // regular Tx
+	if (len(message.Data()) == 0 || binary.BigEndian.Uint64(message.Data()) == 0) {
+		fmt.Print(", \"type\":0") // regular Tx (0x, 0x000000000000)
 	} else {
 		fmt.Print(", \"type\":1") // CA Tx (Deploy, Invoke CA...)
 	}
-	fmt.Print(", \"gas\":", result.UsedGas, ", \"txid\":", txid+1 ,"}\n")
+	failflag := 0
+	if result.Failed() {
+		failflag = 1
+	}
+	fmt.Print(", \"gas\":", result.UsedGas, ", \"fail\":", failflag, ", \"txid\":", txid+1 ,"}\n")
 
 	if err != nil {
 		return nil, fmt.Errorf("tracing failed: %v", err)
