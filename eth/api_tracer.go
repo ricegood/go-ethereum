@@ -371,7 +371,9 @@ func (api *PrivateDebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.B
 	}
 
 	api.traceBlock(ctx, block, config)
-	print ("TraceBlock done #", number)
+	if number % 10000 == 0 {
+		print ("TraceBlock done #", number, "\n")
+	}
 	results := make([]*txTraceResult, 0)
 	return results, nil
 	//return api.traceBlock(ctx, block, config)
