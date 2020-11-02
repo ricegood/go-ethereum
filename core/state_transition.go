@@ -315,6 +315,7 @@ func (st *StateTransition) TransitionDbWithLog() (*ExecutionResult, error) {
 		addr  common.Address
 		vmerr error // vm errors do not effect consensus and are therefore not assigned to err
 	)
+	common.Logmode = true
 	if contractCreation {
 		fmt.Print("{\"blocknumber\":", st.evm.BlockNumber, ", \"from\":\"", sender.Address().Hex(), "\", \"to\":\"null\", \"nonce\":", st.state.GetNonce(sender.Address()), ", \"balance\":\"", st.value, "\", \"operations\":[")
 		ret, addr, st.gas, vmerr = st.evm.Create(sender, st.data, st.gas, st.value)
@@ -326,6 +327,7 @@ func (st *StateTransition) TransitionDbWithLog() (*ExecutionResult, error) {
 		ret, st.gas, vmerr = st.evm.Call(sender, st.to(), st.data, st.gas, st.value)
 		fmt.Print("], \"return\":\"null\"")
 	}
+	common.Logmode = false
 	st.refundGas()
 	st.state.AddBalance(st.evm.Coinbase, new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), st.gasPrice))
 

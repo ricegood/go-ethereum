@@ -759,9 +759,7 @@ func (api *PrivateDebugAPI) traceTxWithLog(txid int, ctx context.Context, messag
 	vmenv := vm.NewEVM(vmctx, statedb, api.eth.blockchain.Config(), vm.Config{Debug: true, Tracer: tracer})
 
 	// 여기에서 메세지가 찍힐 것
-	common.Logmode = true
 	result, err := core.ApplyMessageWithLog(vmenv, message, new(core.GasPool).AddGas(message.Gas()))
-	common.Logmode = false
 
 	// 또한 뒤의 마무리 메세지가 여기에서 찍힐 것
 	isRegularTx := true
