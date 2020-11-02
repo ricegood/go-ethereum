@@ -500,7 +500,6 @@ func (api *PrivateDebugAPI) traceBlock(ctx context.Context, block *types.Block, 
 	close(jobs)
 
 	// Logmode를 설정한 뒤 jobs에 있는 task (=transaction) 을 하나씩 수행한다
-	common.Logmode = true
 	for task := range jobs {
 		msg, _ := txs[task.index].AsMessage(signer)
 		vmctx := core.NewEVMContext(msg, block.Header(), api.eth.blockchain, nil)
@@ -511,7 +510,6 @@ func (api *PrivateDebugAPI) traceBlock(ctx context.Context, block *types.Block, 
 		}
 		results[task.index] = &txTraceResult{Result: res}
 	}
-	common.Logmode = false
 
 	//pend.Wait()
 
@@ -718,7 +716,10 @@ func (api *PrivateDebugAPI) TraceTransaction(ctx context.Context, hash common.Ha
 		return nil, err
 	}
 	// Trace the transaction and return
-	return api.traceTx(ctx, msg, vmctx, statedb, config)
+	api.traceTxWithLog(int(index), ctx, msg, vmctx, statedb, config)
+	results := make([]*txTraceResult, 0)
+	return results, nil
+	//return api.traceTx(ctx, msg, vmctx, statedb, config)
 }
 
 func (api *PrivateDebugAPI) traceTxWithLog(txid int, ctx context.Context, message core.Message, vmctx vm.Context, statedb *state.StateDB, config *TraceConfig) (interface{}, error) {
@@ -758,7 +759,9 @@ func (api *PrivateDebugAPI) traceTxWithLog(txid int, ctx context.Context, messag
 	vmenv := vm.NewEVM(vmctx, statedb, api.eth.blockchain.Config(), vm.Config{Debug: true, Tracer: tracer})
 
 	// 여기에서 메세지가 찍힐 것
+	common.Logmode = true
 	result, err := core.ApplyMessageWithLog(vmenv, message, new(core.GasPool).AddGas(message.Gas()))
+	common.Logmode = false
 
 	// 또한 뒤의 마무리 메세지가 여기에서 찍힐 것
 	isRegularTx := true
