@@ -262,6 +262,9 @@ func opBalance(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([
 	slot := callContext.stack.peek()
 	address := common.Address(slot.Bytes20())
 	slot.SetFromBig(interpreter.evm.StateDB.GetBalance(address))
+	if common.Logmode {
+		fmt.Print("\"BALANCE ", address.Hex(), "\",")
+	}
 	return nil, nil
 }
 
