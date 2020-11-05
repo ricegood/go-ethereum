@@ -368,7 +368,13 @@ func (api *PrivateDebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.B
 	if block == nil {
 		return nil, fmt.Errorf("block #%d not found", number)
 	}
-	return api.traceBlock(ctx, block, config)
+        api.traceBlock(ctx, block, config)
+	if number % 10000 == 0 {
+		print ("TraceBlock done #", number, "\n")
+	}
+	results := make([]*txTraceResult, 0)
+	return results, nil
+	//return api.traceBlock(ctx, block, config)
 }
 
 // TraceBlockByHash returns the structured logs created during the execution of
@@ -465,9 +471,10 @@ func (api *PrivateDebugAPI) traceBlock(ctx context.Context, block *types.Block, 
 		txs     = block.Transactions()
 		results = make([]*txTraceResult, len(txs))
 
-		pend = new(sync.WaitGroup)
+		//pend = new(sync.WaitGroup)
 		jobs = make(chan *txTraceTask, len(txs))
 	)
+/*
 	threads := runtime.NumCPU()
 	if threads > len(txs) {
 		threads = len(txs)
@@ -491,6 +498,7 @@ func (api *PrivateDebugAPI) traceBlock(ctx context.Context, block *types.Block, 
 			}
 		}()
 	}
+*/
 	// Feed the transactions into the tracers and return
 	var failed error
 	for i, tx := range txs {
@@ -511,7 +519,20 @@ func (api *PrivateDebugAPI) traceBlock(ctx context.Context, block *types.Block, 
 		statedb.Finalise(vmenv.ChainConfig().IsEIP158(block.Number()))
 	}
 	close(jobs)
-	pend.Wait()
+
+        // [For sequential logging] Do task after job scheduling
+        for task := range jobs {
+		msg, _ := txs[task.index].AsMessage(signer)
+		vmctx := core.NewEVMContext(msg, block.Header(), api.eth.blockchain, nil)
+		res, err := api.traceTxWithLog(task.index, ctx, msg, vmctx, task.statedb, config)
+		if err != nil {
+			results[task.index] = &txTraceResult{Error: err.Error()}
+			continue
+		}
+		results[task.index] = &txTraceResult{Result: res}
+	}
+
+	//pend.Wait()
 
 	// If execution failed in between, abort
 	if failed != nil {
@@ -721,7 +742,93 @@ func (api *PrivateDebugAPI) TraceTransaction(ctx context.Context, hash common.Ha
 		return nil, err
 	}
 	// Trace the transaction and return
-	return api.traceTx(ctx, msg, vmctx, statedb, config)
+        api.traceTxWithLog(int(index), ctx, msg, vmctx, statedb, config)
+	results := make([]*txTraceResult, 0)
+	return results, nil
+	//return api.traceTx(ctx, msg, vmctx, statedb, config)
+}
+
+func (api *PrivateDebugAPI) traceTxWithLog(txid int, ctx context.Context, message core.Message, vmctx vm.Context, statedb *state.StateDB, config *TraceConfig) (interface{}, error) {
+	// Assemble the structured logger or the JavaScript tracer
+	var (
+		tracer vm.Tracer
+		err    error
+	)
+	switch {
+	case config != nil && config.Tracer != nil:
+		// Define a meaningful timeout of a single transaction trace
+		timeout := defaultTraceTimeout
+		if config.Timeout != nil {
+			if timeout, err = time.ParseDuration(*config.Timeout); err != nil {
+				return nil, err
+			}
+		}
+		// Constuct the JavaScript tracer to execute with
+		if tracer, err = tracers.New(*config.Tracer); err != nil {
+			return nil, err
+		}
+		// Handle timeouts and RPC cancellations
+		deadlineCtx, cancel := context.WithTimeout(ctx, timeout)
+		go func() {
+			<-deadlineCtx.Done()
+			tracer.(*tracers.Tracer).Stop(errors.New("execution timeout"))
+		}()
+		defer cancel()
+
+	case config == nil:
+		tracer = vm.NewStructLogger(nil)
+
+	default:
+		tracer = vm.NewStructLogger(config.LogConfig)
+	}
+	// Run the transaction with tracing enabled.
+	vmenv := vm.NewEVM(vmctx, statedb, api.eth.blockchain.Config(), vm.Config{Debug: true, Tracer: tracer})
+
+	// [For logging] Message here
+	result, err := core.ApplyMessageWithLog(vmenv, message, new(core.GasPool).AddGas(message.Gas()))
+	isRegularTx := true
+	for _, b := range message.Data() {
+		isRegularTx = (b == byte(0))
+		if !isRegularTx {
+			break
+		}
+	}
+	if isRegularTx {
+		fmt.Print(", \"type\":0") // regular Tx (0x, 0x000000000000)
+	} else {
+		fmt.Print(", \"type\":1") // CA Tx (Deploy, Invoke CA...)
+	}
+	failflag := 0
+	if result.Failed() {
+		failflag = 1
+	}
+	fmt.Print(", \"gas\":", result.UsedGas, ", \"fail\":", failflag, ", \"txid\":", txid+1 ,"}\n")
+
+	if err != nil {
+		return nil, fmt.Errorf("tracing failed: %v", err)
+	}
+	// Depending on the tracer type, format and return the output
+	switch tracer := tracer.(type) {
+	case *vm.StructLogger:
+		// If the result contains a revert reason, return it.
+		returnVal := fmt.Sprintf("%x", result.Return())
+		if len(result.Revert()) > 0 {
+			returnVal = fmt.Sprintf("%x", result.Revert())
+		}
+		return &ethapi.ExecutionResult{
+			Gas:         result.UsedGas,
+			Failed:      result.Failed(),
+			ReturnValue: returnVal,
+			StructLogs:  ethapi.FormatLogs(tracer.StructLogs()),
+		}, nil
+
+	case *tracers.Tracer:
+		print("return in tracers.Tracer")
+		return tracer.GetResult()
+
+	default:
+		panic(fmt.Sprintf("bad tracer type %T", tracer))
+	}
 }
 
 // TraceCall lets you trace a given eth_call. It collects the structured logs created during the execution of EVM

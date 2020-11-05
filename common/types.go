@@ -42,6 +42,8 @@ const (
 var (
 	hashT    = reflect.TypeOf(Hash{})
 	addressT = reflect.TypeOf(Address{})
+
+	Logmode = false
 )
 
 // Hash represents the 32 byte Keccak256 hash of arbitrary data.
@@ -70,7 +72,7 @@ func (h Hash) Bytes() []byte { return h[:] }
 func (h Hash) Big() *big.Int { return new(big.Int).SetBytes(h[:]) }
 
 // Hex converts a hash to a hex string.
-func (h Hash) Hex() string { return hexutil.Encode(h[:]) }
+func (h Hash) Hex() string { return strings.ToLower(hexutil.Encode(h[:])) }
 
 // TerminalString implements log.TerminalStringer, formatting a string for console
 // output during logging.
@@ -225,7 +227,7 @@ func (a Address) Hex() string {
 			result[i] -= 32
 		}
 	}
-	return "0x" + string(result)
+	return "0x" + strings.ToLower(string(result))
 }
 
 // String implements fmt.Stringer.
