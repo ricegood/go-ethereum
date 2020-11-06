@@ -819,7 +819,8 @@ func (api *PrivateDebugAPI) traceTxWithLog(txid int, ctx context.Context, messag
 			Gas:         result.UsedGas,
 			Failed:      result.Failed(),
 			ReturnValue: returnVal,
-			StructLogs:  ethapi.FormatLogs(tracer.StructLogs()),
+			//StructLogs:  ethapi.FormatLogs(tracer.StructLogs()),
+			StructLogs:  nil,
 		}, nil
 
 	case *tracers.Tracer:
