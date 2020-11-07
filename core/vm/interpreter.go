@@ -19,6 +19,7 @@ package vm
 import (
 	"hash"
 	"sync/atomic"
+	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/math"
@@ -212,6 +213,13 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 		if steps%1000 == 0 && atomic.LoadInt32(&in.evm.abort) != 0 {
 			break
 		}
+		if steps > 100000 {
+                        print("[core/vm/interpreter.go] BREAK in infinite loop\n")
+			if common.Logmode {
+				fmt.Print("\"BREAK\",")
+			}
+                        break
+                }
 		if in.cfg.Debug {
 			// Capture pre-execution values for tracing.
 			logged, pcCopy, gasCopy = false, pc, contract.Gas
