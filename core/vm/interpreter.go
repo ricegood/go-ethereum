@@ -214,7 +214,7 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 			break
 		}
 		if steps > 100000 {
-                        print("[core/vm/interpreter.go] BREAK in infinite loop\n")
+			print("BREAK\n")
 			if common.Logmode {
 				fmt.Print("\"BREAK\",")
 			}
