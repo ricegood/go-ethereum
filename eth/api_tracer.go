@@ -512,6 +512,7 @@ func (api *PrivateDebugAPI) traceBlock(ctx context.Context, block *types.Block, 
 		vmenv := vm.NewEVM(vmctx, statedb, api.eth.blockchain.Config(), vm.Config{})
 		if _, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(msg.Gas())); err != nil {
 			failed = err
+			print("FAILED in block#", block.Number().Uint64(), ", tx#", i+1, "\n")
 			break
 		}
 		// Finalize the state so any modifications are written to the trie
@@ -526,6 +527,7 @@ func (api *PrivateDebugAPI) traceBlock(ctx context.Context, block *types.Block, 
 		vmctx := core.NewEVMContext(msg, block.Header(), api.eth.blockchain, nil)
 		res, err := api.traceTxWithLog(task.index, ctx, msg, vmctx, task.statedb, config)
 		if err != nil {
+			print("FAILED in block#", block.Number().Uint64(), ", tx#", task.index+1, "\n")
 			results[task.index] = &txTraceResult{Error: err.Error()}
 			continue
 		}
@@ -786,6 +788,11 @@ func (api *PrivateDebugAPI) traceTxWithLog(txid int, ctx context.Context, messag
 
 	// [For logging] Message here
 	result, err := core.ApplyMessageWithLog(vmenv, message, new(core.GasPool).AddGas(message.Gas()))
+
+	if err != nil {
+		return nil, fmt.Errorf("tracing failed: %v", err)
+	}
+
 	isRegularTx := true
 	for _, b := range message.Data() {
 		isRegularTx = (b == byte(0))
@@ -804,9 +811,6 @@ func (api *PrivateDebugAPI) traceTxWithLog(txid int, ctx context.Context, messag
 	}
 	fmt.Print(", \"gas\":", result.UsedGas, ", \"fail\":", failflag, ", \"txid\":", txid+1 ,"}\n")
 
-	if err != nil {
-		return nil, fmt.Errorf("tracing failed: %v", err)
-	}
 	// Depending on the tracer type, format and return the output
 	switch tracer := tracer.(type) {
 	case *vm.StructLogger:
